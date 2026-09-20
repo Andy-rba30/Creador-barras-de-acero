@@ -46,6 +46,9 @@ namespace TiposBarraPeru.Pruebas
             Seccion("6. Extensiones de gancho E.060 (7.1)", PruebasGanchos);
             Seccion("7. Clasificacion de ganchos del proyecto", PruebasClasificacion);
             Seccion("8. Planificador (idempotencia y actualizacion)", PruebasPlanificador);
+            Seccion("9. Otros diametros: area, peso y rango de norma", PruebasOtrosDiametros);
+            Seccion("10. Otros diametros: parametros E.060 frente a los del catalogo", PruebasParametrosOtros);
+            Seccion("11. Otros diametros: catalogoExtra, planificador y validacion", PruebasCatalogoExtra);
 
             Console.WriteLine();
             Console.WriteLine(_ok + " comprobaciones superadas, " + _fallos + " fallidas.");
@@ -283,6 +286,193 @@ namespace TiposBarraPeru.Pruebas
             // e) sin tipos existentes
             plan = Planificador.Planificar(cfg, O, null, false);
             Comprobar("sin existentes: 9 a crear", plan.Count(f => f.Crear) == 9);
+        }
+
+        // ------------------------------------------------------------------
+        private static void PruebasOtrosDiametros()
+        {
+            // formulas: area = pi d^2 / 4 (cm2), peso = area * 0.785 (kg/m)
+            Igual("area 10 mm", 0.7854, PropiedadesBarra.AreaCm2(10), 1e-4);
+            Igual("peso 10 mm", 0.6165, PropiedadesBarra.PesoKgMDesdeDiametro(10), 1e-4);
+            Igual("area 1 1/4\" (31.8)", 7.9423, PropiedadesBarra.AreaCm2(31.8), 1e-4);
+            Igual("peso 1 1/4\" (31.8)", 6.2347, PropiedadesBarra.PesoKgMDesdeDiametro(31.8), 1e-4);
+            Igual("area #6 (19.05)", 2.8502, PropiedadesBarra.AreaCm2(19.05), 1e-4);
+            Igual("peso #6 (19.05)", 2.2374, PropiedadesBarra.PesoKgMDesdeDiametro(19.05), 1e-4);
+            Igual("area 5 mm (se calcula aunque este fuera de norma)", 0.1963, PropiedadesBarra.AreaCm2(5), 1e-4);
+            Igual("area 60 mm", 28.2743, PropiedadesBarra.AreaCm2(60), 1e-4);
+            Igual("peso desde area: 1 cm2 -> 0.785 kg/m", 0.785, PropiedadesBarra.PesoKgM(1.0), 1e-9);
+            Igual("redondeo area 10 mm", 0.79, PropiedadesBarra.RedondearArea(PropiedadesBarra.AreaCm2(10)), 1e-9);
+            Igual("redondeo peso 10 mm", 0.617, PropiedadesBarra.RedondearPeso(PropiedadesBarra.PesoKgMDesdeDiametro(10)), 1e-9);
+            Igual("diametro 0 -> area 0", 0, PropiedadesBarra.AreaCm2(0));
+
+            // las formulas reproducen el catalogo (los valores del fabricante difieren < 3 %)
+            foreach (var t in Tabla)
+            {
+                double a = PropiedadesBarra.AreaCm2(t.mm), w = PropiedadesBarra.PesoKgMDesdeDiametro(t.mm);
+                Comprobar("area formula vs catalogo " + t.nombre, Math.Abs(a - t.cm2) / t.cm2 < 0.03, F(a) + " vs " + F(t.cm2));
+                Comprobar("peso formula vs catalogo " + t.nombre, Math.Abs(w - t.kgm) / t.kgm < 0.03, F(w) + " vs " + F(t.kgm));
+            }
+
+            // rango de la norma: 6 a 57 mm (config)
+            var r = new ReglasE060(Configuracion.PorDefecto().ReglasE060);
+            Igual("minimo de norma", 6, r.DiametroMinimoMm);
+            Igual("maximo de norma", 57, r.DiametroMaximoMm);
+            Comprobar("10 mm dentro", r.DentroDeNorma(10) && r.MotivoFueraDeNorma(10) == null);
+            Comprobar("31.8 dentro", r.DentroDeNorma(31.8));
+            Comprobar("19.05 dentro", r.DentroDeNorma(19.05));
+            Comprobar("6 dentro (limite)", r.DentroDeNorma(6));
+            Comprobar("57 dentro (limite)", r.DentroDeNorma(57));
+            Comprobar("5 fuera", !r.DentroDeNorma(5));
+            Comprobar("5.99 fuera", !r.DentroDeNorma(5.99));
+            Comprobar("60 fuera", !r.DentroDeNorma(60));
+            Comprobar("57.01 fuera", !r.DentroDeNorma(57.01));
+            Igual("motivo 5 mm", "menor de 6 mm, fuera de la norma", r.MotivoFueraDeNorma(5));
+            Igual("motivo 60 mm", "mayor de 57 mm, fuera de la norma", r.MotivoFueraDeNorma(60));
+            Igual("motivo 0 mm", "diametro no valido", r.MotivoFueraDeNorma(0));
+            Comprobar("Calcular.DentroDeNorma", r.Calcular(10).DentroDeNorma && !r.Calcular(60).DentroDeNorma);
+
+            // rango editable en config
+            var cfg = Configuracion.Deserializar("{ \"reglasE060\": { \"diametroMinimoNormaMm\": 8, \"diametroMaximoNormaMm\": 40 } }");
+            var r2 = new ReglasE060(cfg.ReglasE060);
+            Comprobar("rango de config: 6 fuera, 8 dentro, 40 dentro, 41 fuera",
+                      !r2.DentroDeNorma(6) && r2.DentroDeNorma(8) && r2.DentroDeNorma(40) && !r2.DentroDeNorma(41));
+            var mal = Configuracion.Deserializar("{ \"reglasE060\": { \"diametroMinimoNormaMm\": 0, \"diametroMaximoNormaMm\": -1 } }");
+            Comprobar("rango invalido en config vuelve al de por defecto",
+                      mal.ReglasE060.DiametroMinimoNormaMm == 6 && mal.ReglasE060.DiametroMaximoNormaMm == 57);
+        }
+
+        /// <summary>
+        /// Un diametro nuevo recibe exactamente los mismos multiplicadores que los tamanos
+        /// del catalogo que lo rodean, y los valores absolutos escalan con su diametro.
+        /// </summary>
+        private static void PruebasParametrosOtros()
+        {
+            var r = new ReglasE060(Configuracion.PorDefecto().ReglasE060);
+
+            // 10 mm: entre 3/8" (9.5) y 12 mm -> 6 db barra, 4 db estribo, estribo 90 6 db
+            ValoresE060 v10 = r.Calcular(10), v95 = r.Calcular(9.5), v12 = r.Calcular(12);
+            Comprobar("10 mm: multiplicador barra como 3/8\" y 12mm", v10.MultiplicadorBarra == v95.MultiplicadorBarra && v10.MultiplicadorBarra == v12.MultiplicadorBarra && v10.MultiplicadorBarra == 6);
+            Comprobar("10 mm: multiplicador estribo como 3/8\" y 12mm", v10.MultiplicadorEstribo == 4 && v95.MultiplicadorEstribo == 4 && v12.MultiplicadorEstribo == 4);
+            Igual("10 mm: doblado barra 60", 60, v10.DobladoBarraMm, 1e-9);
+            Igual("10 mm: doblado gancho 60", 60, v10.DobladoGanchoMm, 1e-9);
+            Igual("10 mm: doblado estribo 40", 40, v10.DobladoEstriboMm, 1e-9);
+            Igual("10 mm: gancho 180 -> 65 (minimo, como 3/8\" y 12mm)", 65, v10.GanchoEstandar180Mm);
+            Igual("10 mm: gancho 90 -> 120", 120, v10.GanchoEstandar90Mm, 1e-9);
+            Igual("10 mm: estribo 90 -> 60", 60, v10.GanchoEstribo90Mm, 1e-9);
+            Igual("10 mm: estribo 135 -> 60", 60, v10.GanchoEstribo135Mm, 1e-9);
+            Comprobar("10 mm: doblado entre los de 3/8\" y 12mm", v95.DobladoBarraMm < v10.DobladoBarraMm && v10.DobladoBarraMm < v12.DobladoBarraMm);
+
+            // #6 = 19.05 mm: como 3/4" (19.1) -> 6 db barra, 6 db estribo, estribo 90 12 db
+            ValoresE060 v6 = r.Calcular(19.05), v34 = r.Calcular(19.1), v58 = r.Calcular(15.9);
+            Comprobar("#6: multiplicadores como 3/4\"", v6.MultiplicadorBarra == v34.MultiplicadorBarra && v6.MultiplicadorEstribo == v34.MultiplicadorEstribo);
+            Igual("#6: doblado barra 114.3", 114.3, v6.DobladoBarraMm, 1e-9);
+            Igual("#6: doblado estribo 114.3 (6 db, ya no 4 db)", 114.3, v6.DobladoEstriboMm, 1e-9);
+            Comprobar("#6: estribo 6 db mientras 5/8\" sigue en 4 db", v58.MultiplicadorEstribo == 4 && v6.MultiplicadorEstribo == 6);
+            Igual("#6: gancho 180 -> 76.2 (4 db > 65)", 76.2, v6.GanchoEstandar180Mm, 1e-9);
+            Igual("#6: gancho 90 -> 228.6", 228.6, v6.GanchoEstandar90Mm, 1e-9);
+            Igual("#6: estribo 90 -> 228.6 (12 db como 3/4\")", 228.6, v6.GanchoEstribo90Mm, 1e-9);
+            Igual("#6: estribo 135 -> 114.3", 114.3, v6.GanchoEstribo135Mm, 1e-9);
+            Comprobar("#6 y 3/4\": misma regla de estribo 90", Math.Abs(v34.GanchoEstribo90Mm - 12 * 19.1) < 1e-9);
+
+            // 1 1/4" = 31.8 mm: entre 1" (25.4) y 1 3/8" (35.8) -> 8 db barra como 1 3/8", 6 db estribo como 1"
+            ValoresE060 v114 = r.Calcular(31.8), v1 = r.Calcular(25.4), v138 = r.Calcular(35.8);
+            Comprobar("1 1/4\": barra 8 db como 1 3/8\" (y no 6 db como 1\")", v114.MultiplicadorBarra == 8 && v138.MultiplicadorBarra == 8 && v1.MultiplicadorBarra == 6);
+            Comprobar("1 1/4\": estribo 6 db como 1\" y 1 3/8\"", v114.MultiplicadorEstribo == 6 && v1.MultiplicadorEstribo == 6 && v138.MultiplicadorEstribo == 6);
+            Igual("1 1/4\": doblado barra 254.4", 254.4, v114.DobladoBarraMm, 1e-9);
+            Igual("1 1/4\": doblado estribo 190.8", 190.8, v114.DobladoEstriboMm, 1e-9);
+            Igual("1 1/4\": gancho 180 -> 127.2", 127.2, v114.GanchoEstandar180Mm, 1e-9);
+            Igual("1 1/4\": gancho 90 -> 381.6", 381.6, v114.GanchoEstandar90Mm, 1e-9);
+            Igual("1 1/4\": estribo 90 -> 381.6 (12 db)", 381.6, v114.GanchoEstribo90Mm, 1e-9);
+            Comprobar("1 1/4\": doblado entre los de 1\" y 1 3/8\"", v1.DobladoBarraMm < v114.DobladoBarraMm && v114.DobladoBarraMm < v138.DobladoBarraMm);
+
+            // fuera de rango: las reglas se siguen evaluando (para mostrarlas) pero DentroDeNorma es false
+            ValoresE060 v5 = r.Calcular(5), v60 = r.Calcular(60);
+            Comprobar("5 mm: fuera de norma, 6 db / 4 db", !v5.DentroDeNorma && v5.MultiplicadorBarra == 6 && v5.MultiplicadorEstribo == 4);
+            Comprobar("60 mm: fuera de norma, 10 db / 6 db", !v60.DentroDeNorma && v60.MultiplicadorBarra == 10 && v60.MultiplicadorEstribo == 6);
+            Igual("5 mm: gancho 180 -> 65 (minimo)", 65, v5.GanchoEstandar180Mm);
+
+            // el catalogo original sale igual por Calcular que por las funciones sueltas
+            foreach (var t in Tabla)
+            {
+                ValoresE060 v = r.Calcular(t.mm);
+                Comprobar("Calcular coherente " + t.nombre,
+                          Math.Abs(v.DobladoBarraMm - r.DiametroDobladoBarraMm(t.mm)) < 1e-9 &&
+                          Math.Abs(v.GanchoEstribo90Mm - r.ExtensionGanchoMm(TipoGancho.Estribo90, t.mm)) < 1e-9 && v.DentroDeNorma);
+            }
+        }
+
+        private static void PruebasCatalogoExtra()
+        {
+            // a) config con extras: lectura, limpieza de duplicados y de entradas vacias
+            string json = "{ \"catalogoExtra\": [" +
+                          " { \"nombre\": \"10mm\", \"diametroMm\": 10, \"areaCm2\": 0.79, \"pesoKgM\": 0.617 }," +
+                          " { \"nombre\": \"1 1/4\\\"\", \"diametroMm\": 31.8, \"areaCm2\": 7.94, \"pesoKgM\": 6.235 }," +
+                          " { \"nombre\": \"#6\", \"diametroMm\": 19.05, \"areaCm2\": 2.85, \"pesoKgM\": 2.237 }," +
+                          " { \"nombre\": \"5mm\", \"diametroMm\": 5 }," +
+                          " { \"nombre\": \"60mm\", \"diametroMm\": 60 }," +
+                          " { \"nombre\": \"12mm\", \"diametroMm\": 12 }," +
+                          " { \"nombre\": \"10MM\", \"diametroMm\": 10 }," +
+                          " { \"nombre\": \"\", \"diametroMm\": 14 }," +
+                          " { \"nombre\": \"sin diametro\" } ] }";
+            Configuracion cfg = Configuracion.Deserializar(json);
+            Comprobar("catalogo original intacto (9)", cfg.Catalogo.Count == 9);
+            Comprobar("extras: 5 validos (se quitan el repetido del catalogo, el repetido entre extras, el vacio y el sin diametro)",
+                      cfg.CatalogoExtra.Count == 5, cfg.CatalogoExtra.Count.ToString());
+            Comprobar("extras: 12mm no se duplica", !cfg.CatalogoExtra.Any(b => b.Nombre == "12mm"));
+            Comprobar("extras: 10MM (repetido sin mayusculas) se descarta", cfg.CatalogoExtra.Count(b => Nombres.Iguales(b.Nombre, "10mm")) == 1);
+            Comprobar("extras corrugada por defecto", cfg.CatalogoExtra.All(b => b.Corrugada));
+            Comprobar("ida y vuelta conserva los extras", Configuracion.Deserializar(cfg.Serializar()).CatalogoExtra.Count == 5);
+            Comprobar("config por defecto sin extras", Configuracion.PorDefecto().CatalogoExtra.Count == 0);
+
+            // b) planificador: 9 + 5 filas, extras marcados, fuera de norma no se crean
+            var existentes = new List<TipoExistente> { new TipoExistente(O + "#6", 19.05) };
+            List<FilaPlan> plan = Planificador.Planificar(cfg, O, existentes, false);
+            Comprobar("14 filas", plan.Count == 14, plan.Count.ToString());
+            Comprobar("las 9 primeras no son extra y las 5 ultimas si", plan.Take(9).All(f => !f.EsExtra) && plan.Skip(9).All(f => f.EsExtra));
+            FilaPlan f10 = plan.First(f => f.Barra.Nombre == "10mm");
+            FilaPlan f114 = plan.First(f => f.Barra.Nombre == "1 1/4\"");
+            FilaPlan f6 = plan.First(f => f.Barra.Nombre == "#6");
+            FilaPlan f5 = plan.First(f => f.Barra.Nombre == "5mm");
+            FilaPlan f60 = plan.First(f => f.Barra.Nombre == "60mm");
+            Comprobar("10mm se creara con nombre " + O + "10mm", f10.Estado == EstadoFila.SeCreara && f10.Crear && f10.Nombre == O + "10mm");
+            Comprobar("1 1/4\" se creara", f114.Estado == EstadoFila.SeCreara && f114.Nombre == O + "1 1/4\"");
+            Comprobar("#6 ya existe en el proyecto", f6.Estado == EstadoFila.YaExiste && !f6.Crear);
+            Comprobar("5mm fuera de norma: no se crea", f5.Estado == EstadoFila.FueraDeNorma && !f5.Crear && !f5.Seleccionable);
+            Igual("5mm texto de estado", "no se crea (menor de 6 mm, fuera de la norma)", f5.TextoEstado);
+            Comprobar("60mm fuera de norma: no se crea", f60.Estado == EstadoFila.FueraDeNorma && !f60.Crear);
+            Igual("60mm texto de estado", "no se crea (mayor de 57 mm, fuera de la norma)", f60.TextoEstado);
+            Comprobar("fuera de norma tampoco con actualizar", Planificador.Planificar(cfg, O, existentes, true).Count(f => f.Estado == EstadoFila.FueraDeNorma) == 2);
+            Comprobar("11 filas a crear (9 del catalogo + 5 extras - #6 existente - 2 fuera de norma)", plan.Count(f => f.Crear) == 11, plan.Count(f => f.Crear).ToString());
+            Comprobar("valores E.060 del extra 1 1/4\"", Math.Abs(f114.Valores.DobladoBarraMm - 254.4) < 1e-9 && Math.Abs(f114.Valores.GanchoEstandar180Mm - 127.2) < 1e-9);
+
+            // c) nombre repetido en la tabla (extra que, con simboloPulgada, coincide con uno del catalogo)
+            Configuracion cfg2 = Configuracion.PorDefecto();
+            cfg2.SimboloPulgada = "in";
+            cfg2.CatalogoExtra.Add(new BarraCatalogo { Nombre = "1/2in", DiametroMm = 12.7 });
+            List<FilaPlan> plan2 = Planificador.Planificar(cfg2, O, null, false);
+            Comprobar("dos filas producen " + O + "1/2in: ambas marcadas como repetidas",
+                      plan2.Count(f => f.Estado == EstadoFila.NombreDuplicado) == 2 && plan2.Where(f => f.Estado == EstadoFila.NombreDuplicado).All(f => !f.Crear));
+            Igual("texto de estado repetido", "nombre repetido en la tabla", plan2.First(f => f.Estado == EstadoFila.NombreDuplicado).TextoEstado);
+
+            // d) validacion de una barra nueva antes de anadirla
+            Configuracion cfg3 = Configuracion.PorDefecto();
+            cfg3.CatalogoExtra.Add(new BarraCatalogo { Nombre = "10mm", DiametroMm = 10 });
+            var proyecto = new List<TipoExistente> { new TipoExistente(O + "#6", 19.05), new TipoExistente("16M", 16) };
+            Func<string, bool> valido = n => !n.Contains("|");
+            Comprobar("valida: 1 1/4\" 31.8", Planificador.ValidarNuevaBarra(cfg3, O, "1 1/4\"", 31.8, proyecto, valido) == null);
+            Comprobar("valida: #5 15.875", Planificador.ValidarNuevaBarra(cfg3, O, "#5", 15.875, proyecto, valido) == null);
+            Comprobar("valida: nombre con espacios alrededor", Planificador.ValidarNuevaBarra(cfg3, O, "  14mm ", 14, proyecto, valido) == null);
+            Comprobar("rechaza: nombre vacio", Planificador.ValidarNuevaBarra(cfg3, O, "  ", 14, proyecto, valido) != null);
+            Igual("rechaza: 5 mm", "diametro menor de 6 mm, fuera de la norma", Planificador.ValidarNuevaBarra(cfg3, O, "5mm", 5, proyecto, valido));
+            Igual("rechaza: 60 mm", "diametro mayor de 57 mm, fuera de la norma", Planificador.ValidarNuevaBarra(cfg3, O, "60mm", 60, proyecto, valido));
+            Igual("rechaza: repetido en catalogo", "\"12mm\" ya esta en el catalogo", Planificador.ValidarNuevaBarra(cfg3, O, "12mm", 12, proyecto, valido));
+            Igual("rechaza: repetido en catalogo sin mayusculas", "\"12MM\" ya esta en el catalogo", Planificador.ValidarNuevaBarra(cfg3, O, "12MM", 12, proyecto, valido));
+            Igual("rechaza: repetido en extras", "\"10mm\" ya esta en la lista", Planificador.ValidarNuevaBarra(cfg3, O, "10mm", 10, proyecto, valido));
+            Igual("rechaza: choca con tipo del proyecto", "el proyecto ya tiene un tipo \"" + O + "#6\"", Planificador.ValidarNuevaBarra(cfg3, O, "#6", 19.05, proyecto, valido));
+            Comprobar("con otro prefijo #6 ya no choca", Planificador.ValidarNuevaBarra(cfg3, "D", "#6", 19.05, proyecto, valido) == null);
+            Comprobar("rechaza: nombre no admitido por Revit", (Planificador.ValidarNuevaBarra(cfg3, O, "a|b", 10.5, proyecto, valido) ?? "").StartsWith("Revit no admite"));
+            Comprobar("el mismo diametro con otro nombre es valido (14mm y #4.4)", Planificador.ValidarNuevaBarra(cfg3, O, "otro10", 10, proyecto, valido) == null);
+            Comprobar("sin existentes ni validador", Planificador.ValidarNuevaBarra(cfg3, O, "20mm", 20, null) == null);
         }
     }
 }

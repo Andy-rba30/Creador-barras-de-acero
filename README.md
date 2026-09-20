@@ -134,6 +134,57 @@ extensión para comprobar que coincide (tolerancia 0.1 mm). Si no coincide, el r
 lo avisa para revisarlo en Revit. La ventana muestra, para cada gancho del proyecto, la
 regla que se le aplicará.
 
+## Otros diámetros
+
+Debajo de la tabla, el grupo **"Otro diámetro"** permite crear tipos que no están en el
+catálogo peruano (por ejemplo `10mm`, `1 1/4"`, `#6`). Se escribe el nombre y el diámetro
+nominal en mm; área y peso se rellenan solos y se pueden corregir a mano si el catálogo
+del fabricante da otro valor:
+
+```
+área (cm²)  = π · d² / 4          con d en mm, dividido entre 100
+peso (kg/m) = área (cm²) × 0,785   es decir área × 7,85 kg/dm³ pasado a kg/m
+```
+
+Con **"Añadir a la lista"** el diámetro pasa a ser una fila más de la tabla, con su
+casilla "crear", su nombre con el prefijo y el mismo estado que las demás, y se guarda en
+`catalogoExtra` de config.json para que aparezca la próxima vez. El botón **"Quitar"** de
+la fila lo borra de la lista. El catálogo peruano original no se toca.
+
+Todos los parámetros de norma del diámetro nuevo salen de las mismas reglas por umbral,
+sin escribir nada más:
+
+| Parámetro | Regla por diámetro nominal d | Config |
+|---|---|---|
+| Doblado de barra y de gancho estándar | 6 db hasta 25.4 mm, 8 db hasta 35.8 mm, 10 db por encima | `dobladoBarras` |
+| Doblado de estribo | 4 db hasta 15.9 mm, 6 db por encima | `dobladoEstribos` |
+| Gancho 180° | 4 db, mínimo 65 mm | `ganchos.estandar180` |
+| Gancho 90° | 12 db | `ganchos.estandar90` |
+| Estribo 90° | 6 db hasta 15.9 mm, 12 db por encima | `ganchos.estribo90` |
+| Estribo 135° | 6 db | `ganchos.estribo135` |
+| Rango cubierto por la norma | 6 mm a 57 mm (2 1/4", barra #18) | `diametroMinimoNormaMm`, `diametroMaximoNormaMm` |
+
+Un diámetro fuera de ese rango se rechaza al añadirlo, y si ya estaba en `catalogoExtra`
+la fila muestra "no se crea (menor de 6 mm, fuera de la norma)" y queda sin casilla. Un
+extra cuyo nombre repita uno del catálogo se descarta al cargar, y dos filas que produzcan
+el mismo nombre final se marcan "nombre repetido en la tabla". Al añadir se comprueba
+además que el nombre con prefijo sea válido para Revit y que no exista ya en el proyecto.
+
+Ejemplo, `10mm` con el prefijo por defecto:
+
+| | Valor |
+|---|---|
+| Nombre del tipo | `Ø10mm` |
+| Área / peso calculados | 0.79 cm² / 0.617 kg/m |
+| Doblado de barra y gancho | 6 db = 60 mm |
+| Doblado de estribo | 4 db = 40 mm |
+| Gancho 180° / 90° | 65 mm (mínimo) / 120 mm |
+| Estribo 90° / 135° | 60 mm / 60 mm |
+
+Los valores quedan entre los de `Ø3/8"` (9.5 mm) y `Ø12mm`, que tienen los mismos
+multiplicadores. La consola de pruebas comprueba esto para 10 mm, 1 1/4" (31.8 mm,
+8 db de doblado como `Ø1 3/8"`), #6 (19.05 mm, como `Ø3/4"`), y rechaza 5 mm y 60 mm.
+
 ## Instalación
 
 Carpeta de add-ins de Revit 2027: `%AppData%\Autodesk\Revit\Addins\2027\`
@@ -201,7 +252,9 @@ que son exactamente los del archivo distribuido.
 }
 ```
 
-- Para **añadir o quitar tamaños** edita `catalogo`. `nombre` es lo que va tras el
+- Los diámetros añadidos desde la ventana viven en `catalogoExtra`, con el mismo formato;
+  también se pueden editar a mano. Un extra que repita un nombre del catálogo se ignora.
+- Para **añadir o quitar tamaños** del catálogo base edita `catalogo`. `nombre` es lo que va tras el
   prefijo; `diametroMm` decide los multiplicadores E.060; `areaCm2` es solo informativa
   (tabla y README); `pesoKgM` se escribe en el tipo; `corrugada: false` crea la barra como
   lisa (Plain).
@@ -210,8 +263,8 @@ que son exactamente los del archivo distribuido.
   diámetro al cargar) y el último tramo cubre todo lo que quede por encima. Los ganchos
   llevan además `minimoMm` (0 = sin mínimo).
 - El botón **"Guardar opciones en config.json"** de la ventana escribe el prefijo y las
-  dos casillas como nuevos valores por defecto. Al guardar se pierden los comentarios del
-  archivo.
+  dos casillas como nuevos valores por defecto. "Añadir a la lista" y "Quitar" también
+  guardan el archivo. Al guardar se pierden los comentarios del archivo.
 
 ## Comprobaciones sin Revit
 
@@ -224,9 +277,12 @@ de `config.json` (el distribuido, uno con comentarios y comas finales, archivo
 inexistente, JSON vacío e inválido, ida y vuelta), los nueve nombres exactos y las
 variantes de prefijo y símbolo de pulgada, los diámetros de doblado de barra, gancho y
 estribo de cada tamaño, los límites de los tramos, las extensiones de gancho con sus
-mínimos, la clasificación de ganchos del proyecto y el planificador (idempotencia,
-actualización, tipos con otro diámetro, nombres no válidos). Resultado actual:
-**174 comprobaciones superadas, 0 fallidas**.
+mínimos, la clasificación de ganchos del proyecto, el planificador (idempotencia,
+actualización, tipos con otro diámetro, nombres no válidos) y los otros diámetros
+(fórmulas de área y peso contrastadas con el catálogo, rango de la norma, parámetros
+E.060 de 10 mm, 1 1/4" y #6 frente a los tamaños del catálogo que los rodean, rechazo de
+5 mm y 60 mm, lectura y limpieza de `catalogoExtra`, nombres repetidos y validación de
+una barra nueva). Resultado actual: **295 comprobaciones superadas, 0 fallidas**.
 
 ## Limitaciones y lo no probado
 
@@ -235,7 +291,9 @@ actualización, tipos con otro diámetro, nombres no válidos). Resultado actual
   probado las reglas puras, pero queda por comprobar en Revit: la creación real de los
   tipos y sus validaciones de rango, el comportamiento de `GetHookExtensionLength` en la
   calibración de ganchos, que Revit admita la comilla `"` en el nombre (si no, usar
-  `simboloPulgada`), el icono de la cinta y la ventana WPF.
+  `simboloPulgada`), el icono de la cinta y la ventana WPF, incluido el grupo "Otro
+  diámetro" y el botón "Quitar" (su lógica de validación y planificación sí está cubierta
+  por la consola).
 - El área (cm²) solo se muestra en la ventana; no se escribe en el tipo. El peso sí,
   mediante la propiedad nativa `BarMassPerUnitLength` de Revit 2027. Si hiciera falta el
   área en tablas de planificación, el siguiente paso sería un parámetro compartido de
