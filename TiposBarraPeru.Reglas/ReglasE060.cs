@@ -28,6 +28,13 @@ namespace TiposBarraPeru.Reglas
         public double DobladoGanchoMm;
         /// <summary>Diametro interior de doblado de estribos y de sus ganchos (StirrupTieBendDiameter).</summary>
         public double DobladoEstriboMm;
+        /// <summary>Extensiones rectas de gancho (mm) segun 7.1, con sus minimos.</summary>
+        public double GanchoEstandar180Mm;
+        public double GanchoEstandar90Mm;
+        public double GanchoEstribo90Mm;
+        public double GanchoEstribo135Mm;
+        /// <summary>true si el diametro esta dentro del rango que cubre la norma.</summary>
+        public bool DentroDeNorma;
     }
 
     /// <summary>
@@ -72,6 +79,7 @@ namespace TiposBarraPeru.Reglas
         /// <summary>Diametro de doblado de los ganchos estandar de barras principales: tabla 7.2, igual que la barra.</summary>
         public double DiametroDobladoGanchoMm(double diametroMm) => DiametroDobladoBarraMm(diametroMm);
 
+        /// <summary>Todos los parametros de norma de un diametro, catalogado o no.</summary>
         public ValoresE060 Calcular(double diametroMm) => new ValoresE060
         {
             DiametroMm = diametroMm,
@@ -79,8 +87,31 @@ namespace TiposBarraPeru.Reglas
             MultiplicadorEstribo = MultiplicadorDobladoEstribo(diametroMm),
             DobladoBarraMm = DiametroDobladoBarraMm(diametroMm),
             DobladoGanchoMm = DiametroDobladoGanchoMm(diametroMm),
-            DobladoEstriboMm = DiametroDobladoEstriboMm(diametroMm)
+            DobladoEstriboMm = DiametroDobladoEstriboMm(diametroMm),
+            GanchoEstandar180Mm = ExtensionGanchoMm(TipoGancho.Estandar180, diametroMm),
+            GanchoEstandar90Mm = ExtensionGanchoMm(TipoGancho.Estandar90, diametroMm),
+            GanchoEstribo90Mm = ExtensionGanchoMm(TipoGancho.Estribo90, diametroMm),
+            GanchoEstribo135Mm = ExtensionGanchoMm(TipoGancho.Estribo135, diametroMm),
+            DentroDeNorma = DentroDeNorma(diametroMm)
         };
+
+        /// <summary>Rango de diametros que cubre la norma (config: diametroMinimoNormaMm / diametroMaximoNormaMm).</summary>
+        public double DiametroMinimoMm => _cfg.DiametroMinimoNormaMm;
+        public double DiametroMaximoMm => _cfg.DiametroMaximoNormaMm;
+
+        public bool DentroDeNorma(double diametroMm) =>
+            diametroMm >= DiametroMinimoMm - ToleranciaMm && diametroMm <= DiametroMaximoMm + ToleranciaMm;
+
+        /// <summary>Texto del aviso si el diametro queda fuera de la norma; null si esta dentro.</summary>
+        public string MotivoFueraDeNorma(double diametroMm)
+        {
+            if (diametroMm <= 0) return "diametro no valido";
+            if (diametroMm < DiametroMinimoMm - ToleranciaMm)
+                return "menor de " + Num(DiametroMinimoMm) + " mm, fuera de la norma";
+            if (diametroMm > DiametroMaximoMm + ToleranciaMm)
+                return "mayor de " + Num(DiametroMaximoMm) + " mm, fuera de la norma";
+            return null;
+        }
 
         /// <summary>Extension recta del gancho tras el doblez (mm), con su minimo absoluto.</summary>
         public double ExtensionGanchoMm(TipoGancho tipo, double diametroMm)

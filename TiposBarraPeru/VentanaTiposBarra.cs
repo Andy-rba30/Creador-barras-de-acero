@@ -30,6 +30,10 @@ namespace TiposBarraPeru
         private Button _crear;
         private TextBlock _mensaje;
 
+        // grupo "Otro diametro"
+        private TextBox _nuevoNombre, _nuevoDiametro, _nuevaArea, _nuevoPeso;
+        private TextBlock _nuevoMensaje;
+
         private sealed class Fila
         {
             public FilaPlan Plan;
@@ -88,7 +92,8 @@ namespace TiposBarraPeru
 
             var cuerpo = new StackPanel();
             _tabla = new Grid { Margin = new Thickness(0, 4, 0, 4) };
-            cuerpo.Children.Add(new GroupBox { Header = "Catalogo (config.json)", Padding = new Thickness(4), Content = _tabla });
+            cuerpo.Children.Add(new GroupBox { Header = "Catalogo (config.json) y diametros anadidos (catalogoExtra)", Padding = new Thickness(4), Content = _tabla });
+            cuerpo.Children.Add(ConstruirOtroDiametro());
             cuerpo.Children.Add(ConstruirGanchos());
 
             var scroll = new ScrollViewer
@@ -151,7 +156,10 @@ namespace TiposBarraPeru
         }
 
         private static readonly string[] Cabeceras =
-            { "Crear", "Nombre", "Ø (mm)", "Area (cm2)", "Peso (kg/m)", "Doblado barra (mm)", "Doblado estribo (mm)", "Estado" };
+            { "Crear", "Nombre", "Ø (mm)", "Area (cm2)", "Peso (kg/m)", "Doblado barra (mm)", "Doblado estribo (mm)", "Estado", "" };
+
+        /// <summary>Indice de la columna "Estado", la unica que se estira.</summary>
+        private const int ColumnaEstado = 7;
 
         private void ConstruirTabla(List<FilaPlan> plan)
         {
@@ -161,7 +169,7 @@ namespace TiposBarraPeru
             _filas.Clear();
 
             for (int c = 0; c < Cabeceras.Length; c++)
-                _tabla.ColumnDefinitions.Add(new ColumnDefinition { Width = c == Cabeceras.Length - 1 ? new GridLength(1, GridUnitType.Star) : GridLength.Auto });
+                _tabla.ColumnDefinitions.Add(new ColumnDefinition { Width = c == ColumnaEstado ? new GridLength(1, GridUnitType.Star) : GridLength.Auto });
 
             _tabla.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             for (int c = 0; c < Cabeceras.Length; c++)
@@ -199,13 +207,134 @@ namespace TiposBarraPeru
                 Celda(de, r, 6);
 
                 fila.Estado = new TextBlock { Text = p.TextoEstado, Margin = Pad, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
-                fila.Estado.Foreground = p.Estado == EstadoFila.SeCreara ? BrochaCrear
-                                       : p.Estado == EstadoFila.NombreInvalido ? BrochaAviso
-                                       : !string.IsNullOrEmpty(p.Aviso) ? BrochaAviso : BrochaExiste;
-                Celda(fila.Estado, r, 7);
+                bool problema = p.Estado == EstadoFila.NombreInvalido || p.Estado == EstadoFila.FueraDeNorma ||
+                                p.Estado == EstadoFila.NombreDuplicado || !string.IsNullOrEmpty(p.Aviso);
+                fila.Estado.Foreground = p.Estado == EstadoFila.SeCreara ? BrochaCrear : problema ? BrochaAviso : BrochaExiste;
+                fila.Estado.ToolTip = "Ganchos E.060 (extension recta): 180 grados " + Fmt(p.Valores.GanchoEstandar180Mm) + " mm, 90 grados " +
+                                      Fmt(p.Valores.GanchoEstandar90Mm) + " mm, estribo 90 " + Fmt(p.Valores.GanchoEstribo90Mm) +
+                                      " mm, estribo 135 " + Fmt(p.Valores.GanchoEstribo135Mm) + " mm";
+                Celda(fila.Estado, r, ColumnaEstado);
+
+                if (p.EsExtra)
+                {
+                    var quitar = new Button { Content = "Quitar", Padding = new Thickness(8, 1, 8, 1), Margin = Pad, VerticalAlignment = VerticalAlignment.Center };
+                    quitar.ToolTip = "Borra este diametro de catalogoExtra en config.json";
+                    BarraCatalogo barra = p.Barra;
+                    quitar.Click += (s, e) => AlQuitar(barra);
+                    Celda(quitar, r, 8);
+                }
 
                 _filas.Add(fila);
                 r++;
+            }
+        }
+
+        private UIElement ConstruirOtroDiametro()
+        {
+            var panel = new StackPanel();
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Los parametros de norma del diametro nuevo salen de las mismas reglas por umbral que el catalogo. " +
+                       "Area y peso se calculan (pi*d^2/4 y 7.85 kg/dm3) y se pueden corregir a mano.",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+
+            var linea = new StackPanel { Orientation = Orientation.Horizontal };
+            _nuevoNombre = Campo(linea, "Nombre:", "", 80);
+            _nuevoNombre.ToolTip = "Lo que va tras el prefijo: 10mm, 1 1/4\", #6 ...";
+            _nuevoDiametro = Campo(linea, "Ø nominal (mm):", "", 60);
+            _nuevaArea = Campo(linea, "Area (cm2):", "", 60);
+            _nuevoPeso = Campo(linea, "Peso (kg/m):", "", 60);
+            _nuevoDiametro.TextChanged += (s, e) => RellenarAreaYPeso();
+
+            var anadir = new Button { Content = "Anadir a la lista", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            anadir.Click += AlAnadir;
+            linea.Children.Add(anadir);
+            panel.Children.Add(linea);
+
+            _nuevoMensaje = new TextBlock { Foreground = BrochaAviso, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
+            panel.Children.Add(_nuevoMensaje);
+
+            return new GroupBox { Header = "Otro diametro", Padding = new Thickness(4), Margin = new Thickness(0, 6, 0, 0), Content = panel };
+        }
+
+        private static TextBox Campo(Panel padre, string etiqueta, string valor, double ancho)
+        {
+            padre.Children.Add(new TextBlock { Text = etiqueta, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
+            var caja = new TextBox { Text = valor, Width = ancho, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+            padre.Children.Add(caja);
+            return caja;
+        }
+
+        /// <summary>Numero escrito por el usuario; admite coma o punto decimal. null si no es un numero.</summary>
+        private static double? Leer(TextBox caja)
+        {
+            string t = (caja.Text ?? "").Trim().Replace(',', '.');
+            if (double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out double v)) return v;
+            return null;
+        }
+
+        private void RellenarAreaYPeso()
+        {
+            double? d = Leer(_nuevoDiametro);
+            if (d == null || d.Value <= 0) return;
+            double area = PropiedadesBarra.RedondearArea(PropiedadesBarra.AreaCm2(d.Value));
+            _nuevaArea.Text = Fmt(area);
+            _nuevoPeso.Text = Fmt(PropiedadesBarra.RedondearPeso(PropiedadesBarra.PesoKgM(area)), "0.###");
+        }
+
+        private void AlAnadir(object sender, RoutedEventArgs e)
+        {
+            _nuevoMensaje.Foreground = BrochaAviso;
+            double? d = Leer(_nuevoDiametro);
+            if (d == null || d.Value <= 0) { _nuevoMensaje.Text = "Escribe el diametro nominal en mm."; return; }
+
+            string error = Planificador.ValidarNuevaBarra(_cfg, _prefijo.Text, _nuevoNombre.Text, d.Value, _existentes, NombreValido);
+            if (error != null) { _nuevoMensaje.Text = error; return; }
+
+            double? area = Leer(_nuevaArea);
+            double? peso = Leer(_nuevoPeso);
+            if (area == null || area.Value <= 0) area = PropiedadesBarra.RedondearArea(PropiedadesBarra.AreaCm2(d.Value));
+            if (peso == null || peso.Value <= 0) peso = PropiedadesBarra.RedondearPeso(PropiedadesBarra.PesoKgM(area.Value));
+
+            _cfg.CatalogoExtra.Add(new BarraCatalogo
+            {
+                Nombre = _nuevoNombre.Text.Trim(),
+                DiametroMm = d.Value,
+                AreaCm2 = area.Value,
+                PesoKgM = peso.Value,
+                Corrugada = true
+            });
+            GuardarCatalogoExtra();
+            _nuevoNombre.Text = "";
+            _nuevoDiametro.Text = "";
+            _nuevaArea.Text = "";
+            _nuevoPeso.Text = "";
+            Replanificar();
+        }
+
+        private void AlQuitar(BarraCatalogo barra)
+        {
+            _cfg.CatalogoExtra.Remove(barra);
+            _desmarcados.Remove(barra.Nombre);
+            GuardarCatalogoExtra();
+            Replanificar();
+        }
+
+        /// <summary>Guarda config.json con la lista de extras. Si falla, la lista sigue valida en esta sesion.</summary>
+        private void GuardarCatalogoExtra()
+        {
+            try
+            {
+                _cfg.Guardar(_rutaConfig);
+                _nuevoMensaje.Foreground = BrochaCrear;
+                _nuevoMensaje.Text = "Lista guardada en config.json (" + _cfg.CatalogoExtra.Count + " diametro(s) anadido(s)).";
+            }
+            catch (Exception ex)
+            {
+                _nuevoMensaje.Foreground = BrochaAviso;
+                _nuevoMensaje.Text = "No se pudo guardar config.json: " + ex.Message + ". La lista solo vale para esta sesion.";
             }
         }
 
@@ -300,7 +429,11 @@ namespace TiposBarraPeru
             _crear.Content = act > 0 ? "Crear " + nuevos + " y actualizar " + act : "Crear " + n + " tipo(s)";
             _crear.IsEnabled = n > 0;
             int invalidos = _filas.Count(f => f.Plan.Estado == EstadoFila.NombreInvalido);
-            _mensaje.Text = invalidos > 0 ? invalidos + " nombre(s) no admitido(s) por Revit: cambia el prefijo o \"simboloPulgada\" en config.json." : "";
+            int fuera = _filas.Count(f => f.Plan.Estado == EstadoFila.FueraDeNorma || f.Plan.Estado == EstadoFila.NombreDuplicado);
+            var avisos = new List<string>();
+            if (invalidos > 0) avisos.Add(invalidos + " nombre(s) no admitido(s) por Revit: cambia el prefijo o \"simboloPulgada\" en config.json.");
+            if (fuera > 0) avisos.Add(fuera + " fila(s) fuera de la norma o con nombre repetido: no se crean (ver estado).");
+            _mensaje.Text = string.Join(" ", avisos);
         }
 
         private void AlCrear(object sender, RoutedEventArgs e)

@@ -26,9 +26,16 @@
     { "nombre": "1 3/8\"", "diametroMm": 35.8, "areaCm2": 10.06, "pesoKgM": 7.907, "corrugada": true }
   ],
 
+  // Diametros anadidos desde la ventana ("Otro diametro"). El add-in los guarda aqui; se pueden editar a mano.
+  // Ejemplo: { "nombre": "10mm", "diametroMm": 10.0, "areaCm2": 0.79, "pesoKgM": 0.617, "corrugada": true }
+  "catalogoExtra": [],
+
   // Norma E.060 (Concreto Armado), articulos 7.1 y 7.2. Los tramos son "hasta este diametro (mm), este
   // multiplicador de db"; se evaluan en orden y el ultimo cubre todo lo que quede por encima.
   "reglasE060": {
+    // Rango de diametros que cubre la norma (mm). Fuera de el la fila avisa y no se crea el tipo.
+    "diametroMinimoNormaMm": 6,
+    "diametroMaximoNormaMm": 57,
     // 7.2.1, tabla 7.2: diametro interior minimo de doblado de barras principales y de sus ganchos.
     "dobladoBarras": [
       { "hastaDiametroMm": 25.4, "multiplicador": 6 },

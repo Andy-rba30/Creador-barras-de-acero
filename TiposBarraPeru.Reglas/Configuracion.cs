@@ -49,6 +49,12 @@ namespace TiposBarraPeru.Reglas
     /// <summary>Reglas E.060 parametrizadas (articulos 7.1 y 7.2).</summary>
     public class ReglasE060Cfg
     {
+        /// <summary>Diametro mas pequeno que cubre la norma (mm). Por debajo no se crea el tipo.</summary>
+        public double DiametroMinimoNormaMm { get; set; } = 6;
+
+        /// <summary>Diametro mas grande que cubre la norma (mm): 2 1/4" (barra #18). Por encima no se crea el tipo.</summary>
+        public double DiametroMaximoNormaMm { get; set; } = 57;
+
         /// <summary>7.2.1, tabla 7.2: diametro interior minimo de doblado de barras principales y de sus ganchos.</summary>
         public List<TramoMultiplicador> DobladoBarras { get; set; } = new List<TramoMultiplicador>
         {
@@ -99,6 +105,12 @@ namespace TiposBarraPeru.Reglas
         public double ToleranciaDiametroMm { get; set; } = 0.05;
 
         public List<BarraCatalogo> Catalogo { get; set; } = new List<BarraCatalogo>();
+
+        /// <summary>
+        /// Diametros anadidos desde la ventana ("Otro diametro"). Se guardan aqui para
+        /// que aparezcan en la tabla la proxima vez; el catalogo original no se toca.
+        /// </summary>
+        public List<BarraCatalogo> CatalogoExtra { get; set; } = new List<BarraCatalogo>();
 
         public ReglasE060Cfg ReglasE060 { get; set; } = new ReglasE060Cfg();
 
@@ -178,8 +190,25 @@ namespace TiposBarraPeru.Reglas
             if (Catalogo.Count == 0) Catalogo = CatalogoPorDefecto();
             foreach (BarraCatalogo b in Catalogo) b.Nombre = b.Nombre.Trim();
 
+            // extras: sin entradas vacias y sin repetir un nombre del catalogo ni de otro extra
+            if (CatalogoExtra == null) CatalogoExtra = new List<BarraCatalogo>();
+            CatalogoExtra.RemoveAll(b => b == null || string.IsNullOrWhiteSpace(b.Nombre) || b.DiametroMm <= 0);
+            var vistos = new List<string>();
+            foreach (BarraCatalogo b in Catalogo) vistos.Add(b.Nombre);
+            var limpios = new List<BarraCatalogo>();
+            foreach (BarraCatalogo b in CatalogoExtra)
+            {
+                b.Nombre = b.Nombre.Trim();
+                if (vistos.Exists(n => Nombres.Iguales(n, b.Nombre))) continue;
+                vistos.Add(b.Nombre);
+                limpios.Add(b);
+            }
+            CatalogoExtra = limpios;
+
             if (ReglasE060 == null) ReglasE060 = new ReglasE060Cfg();
             var def = new ReglasE060Cfg();
+            if (ReglasE060.DiametroMinimoNormaMm <= 0) ReglasE060.DiametroMinimoNormaMm = def.DiametroMinimoNormaMm;
+            if (ReglasE060.DiametroMaximoNormaMm <= ReglasE060.DiametroMinimoNormaMm) ReglasE060.DiametroMaximoNormaMm = def.DiametroMaximoNormaMm;
             ReglasE060.DobladoBarras = TablaValida(ReglasE060.DobladoBarras, def.DobladoBarras);
             ReglasE060.DobladoEstribos = TablaValida(ReglasE060.DobladoEstribos, def.DobladoEstribos);
             if (ReglasE060.Ganchos == null) ReglasE060.Ganchos = new ReglasGanchosCfg();
